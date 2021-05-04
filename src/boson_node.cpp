@@ -62,13 +62,6 @@ using namespace cv;
 // Need to clean video for linux structs to avoid some random initializations problems (not always present)
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
-// Types of sensors supported
-enum sensor_types
-{
-    Boson320,
-    Boson640
-};
-
 using namespace std;
 
 class BosonUSMA
@@ -88,7 +81,6 @@ private:
     char video_frames_str[30];
     // Default Program options
     int video_mode;
-    int video_frames;
     int record_enable;
     struct v4l2_format format;
     struct v4l2_buffer bufferinfo;
@@ -110,17 +102,18 @@ private:
     // To record images
     std::vector<int> compression_params;
 
-    image_transport::Publisher image_pub_;
+    image_transport::Publisher image_pub_8;
+    image_transport::Publisher image_pub_16;
+    //TODO Add the subscribers to get logging data
 
 public:
     BosonUSMA(ros::NodeHandle *nh)
     {
         frame = 0; // First frame number enumeration
         // Default Program options
-        width = 640;
-        height = 512;
-        video_mode = RAW16;
-        video_frames = 0;
+        width = 640; //TODO query the camera to get this
+        height = 512; //TODO query the camera to get this
+        video_mode = RAW16; //TODO query the camera to get this
         record_enable = 0;
         compression_params.push_back(IMWRITE_PXM_BINARY);
         data_dir = "/tmp/BHG_DATA";
@@ -134,16 +127,18 @@ public:
         sprintf(folder_name, "TestFolder");
         sprintf(thermal_sensor_name, "Boson_640");
 
+        // TODO reconsile the file saving between Gobi method and boson method
         if (strlen(folder_name) <= 1)
         { // File name has to be more than two chars
             strcpy(folder_name, thermal_sensor_name);
         }
         mkdir(folder_name, 0700);
         chdir(folder_name);
-        printf(WHT ">>> Folder " YEL "%s" WHT " selected to record files\n", folder_name);
+        ROS_INFO(WHT ">>> Folder " YEL "%s" WHT " selected to record files", folder_name);
 
         image_transport::ImageTransport it_(*nh);
-        image_pub_ = it_.advertise("boson_image", 1); // TODO Namespace this to /camera/gobi/ , use the same pattern as FLIR
+        image_pub_8 = it_.advertise("boson_image8", 1);
+        image_pub_16 = it_.advertise("boson_image16", 1);
     }
 
     ~BosonUSMA()
@@ -163,7 +158,7 @@ public:
         };
 
         close(fd);
-        printf(WHT ">>> " YEL "%s exited cleanly\n", thermal_sensor_name);
+        ROS_INFO(WHT ">>> " YEL "%s exited cleanly", thermal_sensor_name);
 
         return EXIT_SUCCESS;
     }
@@ -172,32 +167,32 @@ public:
     {
         struct v4l2_capability cap;
 
-        // Printf Sensor defined
-        printf(WHT ">>> " YEL "%s" WHT " selected\n", thermal_sensor_name);
+        // ROS_INFO Sensor defined
+        ROS_INFO(WHT ">>> " YEL "%s" WHT " selected", thermal_sensor_name);
 
         // We open the Video Device
-        printf(WHT ">>> " YEL "%s" WHT " selected\n", video);
+        ROS_INFO(WHT ">>> " YEL "%s" WHT " selected", video);
         if ((fd = open(video, O_RDWR)) < 0)
         {
-            perror(RED "Error : OPEN. Invalid Video Device" WHT "\n");
+            perror(RED "Error : OPEN. Invalid Video Device" WHT);
             exit(1);
         }
 
         // Check VideoCapture mode is available
         if (ioctl(fd, VIDIOC_QUERYCAP, &cap) < 0)
         {
-            perror(RED "ERROR : VIDIOC_QUERYCAP. Video Capture is not available" WHT "\n");
+            perror(RED "ERROR : VIDIOC_QUERYCAP. Video Capture is not available" WHT);
             exit(1);
         }
 
         if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE))
         {
-            fprintf(stderr, RED "The device does not handle single-planar video capture." WHT "\n");
+            fprintf(stderr, RED "The device does not handle single-planar video capture." WHT);
             exit(1);
         }
 
         CLEAR(format);
-        printf(WHT ">>> " YEL "16 bits " WHT "capture selected\n");
+        ROS_INFO(WHT ">>> " YEL "16 bits " WHT "capture selected");
 
         // I am requiring thermal 16 bits mode
         format.fmt.pix.pixelformat = V4L2_PIX_FMT_Y16;
@@ -249,9 +244,9 @@ public:
 
         // map fd+offset into a process location (kernel will decide due to our NULL). lenght and
         // properties are also passed
-        printf(WHT ">>> Image width  =" YEL "%i" WHT "\n", width);
-        printf(WHT ">>> Image height =" YEL "%i" WHT "\n", height);
-        printf(WHT ">>> Buffer lenght=" YEL "%i" WHT "\n", bufferinfo.length);
+        ROS_INFO(WHT ">>> Image width  =" YEL "%i" WHT , width);
+        ROS_INFO(WHT ">>> Image height =" YEL "%i" WHT , height);
+        ROS_INFO(WHT ">>> Buffer lenght=" YEL "%i" WHT , bufferinfo.length);
 
         void *buffer_start = mmap(NULL, bufferinfo.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bufferinfo.m.offset);
 
@@ -281,7 +276,7 @@ public:
 
     int getFrame()
     {
-        //printf(GRN ">>> HERE NOW1 Type: %d, Length: %d\n", bufferinfo.type, bufferinfo.length);
+        //ROS_INFO(GRN ">>> HERE NOW1 Type: %d, Length: %d", bufferinfo.type, bufferinfo.length);
         // Put the buffer in the incoming queue.
         if (ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0)
         {
@@ -307,9 +302,17 @@ public:
         cv_bridge::CvImagePtr cv_ptr(new cv_bridge::CvImage);
         cv_ptr->encoding = "mono8";
         cv_ptr->header.stamp = ros::Time::now();
-        cv_ptr->header.frame_id = "gobi";
+        cv_ptr->header.frame_id = "boson";
         cv_ptr->image = thermal16_linear;
-        this->image_pub_.publish(cv_ptr->toImageMsg());
+        this->image_pub_8.publish(cv_ptr->toImageMsg());
+        cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 400),
+                    cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
+
+        cv_ptr->encoding = "mono16";
+        cv_ptr->header.stamp = ros::Time::now();
+        cv_ptr->header.frame_id = "boson";
+        cv_ptr->image = thermal16;
+        this->image_pub_16.publish(cv_ptr->toImageMsg());
 
         if (record_enable == 1)
         {
@@ -349,10 +352,10 @@ public:
                 {
                     max1 = value3;
                 }
-                //printf("%X.%X.%X  ", value1, value2, value3);
+                //ROS_INFO("%X.%X.%X  ", value1, value2, value3);
             }
         }
-        //printf("max1=%04X, min1=%04X\n", max1, min1);
+        //ROS_INFO("max1=%04X, min1=%04X", max1, min1);
 
         for (int i = 0; i < height; i++)
         {
@@ -362,7 +365,7 @@ public:
                 value2 = input_16.at<uchar>(i, j * 2) & 0xFF;     // Low Byte
                 value3 = (value1 << 8) + value2;
                 value4 = ((255 * (value3 - min1))) / (max1 - min1);
-                // printf("%04X \n", value4);
+                // ROS_INFO("%04X ", value4);
 
                 output_8.at<uchar>(i, j) = (uchar)(value4 & 0xFF);
             }
@@ -378,16 +381,8 @@ public:
     // TODO Update to reflect current usage
     void print_help()
     {
-        printf(CYN "Boson Capture and Record Video tool v%i.%i" WHT "\n", v_major, v_minor);
-        printf(CYN "FLIR Systems" WHT "\n\n");
-        printf(WHT "use : " YEL "'BosonUSB r' " WHT "to capture in raw-16 bits mode   (default)\n");
-        printf(WHT "Use : " YEL "'BosonUSB y' " WHT "to capture in agc-8  bits mode\n");
-        printf(WHT "Use : " YEL "'BosonUSB f<name>' " WHT "record TIFFS in Folder <NAME>\n");
-        printf(WHT "Use : " YEL "'BosonUSB f<name> t<frame_count>' " WHT "record TIFFS in Folder <NAME> and stop recording after <FRAME_COUNT> frames\n");
-        printf(WHT "Use : " YEL "'BosonUSB [0..9]'   " WHT "to open /dev/Video[0..9]  (default 0)\n");
-        printf(WHT "Use : " YEL "'BosonUSB s[b,B]'   " WHT "b=boson320, B=boson640   (default 320)\n");
-        printf(WHT "Press " YEL "'q' in video window " WHT " to quit\n");
-        printf("\n");
+        ROS_INFO(CYN "West Point Robotics Boson Capture and Record Node for Project Convergence v%i.%i" WHT , v_major, v_minor);
+        ROS_INFO(CYN "Press " YEL "Ctrl-C " CYN "to shutdown the node cleanly" WHT);
     }
 
     // Make a string with the date time stamp formatted for file names. Includes milliseconds.
@@ -416,8 +411,7 @@ public:
         if (mkdir(this->image_folder.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
         {
             if (errno == 0)
-            { // TODO fix this to return accurate feedback
-                // TODO figure out why this check for zero?
+            { 
                 ROS_INFO("***** GOBI:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
             }
             else if (errno == 17)
@@ -512,7 +506,7 @@ int main(int argc, char **argv)
         // // Press 'q' to exit
         // if (waitKey(1) == 'q')
         // { // 0x20 (SPACE) ; need a small delay !! we use this to also add an exit option
-        //     printf(WHT ">>> " RED "'q'" WHT " key pressed. Quitting !\n");
+        //     ROS_INFO(WHT ">>> " RED "'q'" WHT " key pressed. Quitting !");
         //     break;
         // }
     }
