@@ -1,0 +1,9 @@
+# Jupyter Notebook
+.ipynb_checkpoints
+__pycache__/
+
+*.pyc
+*.pyo
+
+*.code-workspace
+.vscode
