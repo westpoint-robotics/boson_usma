@@ -120,6 +120,7 @@ catkin_package(
 include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
+  /usr/local/include/boson
 )
 
 ## Declare a C++ library
@@ -136,6 +137,7 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(${PROJECT_NAME}_node src/boson_node.cpp)
+add_executable(boson_sdk_test src/boson_sdk_test.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -149,7 +151,14 @@ add_executable(${PROJECT_NAME}_node src/boson_node.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}_node
+${catkin_LIBRARIES}
+boson
+FSLP_64
+)
+target_link_libraries(boson_sdk_test
   ${catkin_LIBRARIES}
+  boson
+  FSLP_64
 )
 
 #############

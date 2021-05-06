@@ -6,22 +6,6 @@
 -  https://github.com/FLIR/BosonUSB.git                                -
 -                                                                      -
 ------------------------------------------------------------------------
-
- BosonUSB [r/y/z/s/t/f] [0..9]
-	r    : raw16 bits video input (default)
-	y    : agc-8 bits video input
-        f<name> : record TIFFS in Folder <NAME>
-        t<number> : number of frames to record
-	s[b,B]  : camera size : b=boson320, B=boson640
-	[0..9]  : linux video port
-
-./BosonUSB   ->  opens Boson320 /dev/video0  in RAW16 mode
-./BosonUSB r ->  opens Boson320 /dev/video0  in RAW16 mode
-./BosonUSB y ->  opens Boson320 /dev/video0  in AGC-8bits mode
-./BosonUSB sB 1    ->  opens Boson640 /dev/video1  in RAW16 mode
-./BosonUSB sB y 2  ->  opens Boson640 /dev/video2  in AGC-8bits mode
-./BosonUSB fcap -> creates a folder named 'cap' and inside TIFF files (raw16, agc, yuv) will be located.
-
 */
 #include <stdio.h>
 #include <fcntl.h> // open, O_RDWR
@@ -33,6 +17,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <linux/videodev2.h>
+#include <string>
+extern "C"
+{ // For using the Boson C SDK
+#include "EnumTypes.h"
+#include "UART_Connector.h"
+#include "Client_API.h"
+}
 
 #include "ros/ros.h"
 #include <cv.h>
@@ -89,7 +80,8 @@ private:
     std::string serial_num;
     std::ofstream csvOutfile;
     std::string image_folder;
-    std::string image_filename;
+    std::string image_filename8;
+    std::string image_filename16;
     std::string img_time;
     std::string crnt_time;
 
@@ -111,16 +103,17 @@ public:
     {
         frame = 0; // First frame number enumeration
         // Default Program options
-        width = 640; //TODO query the camera to get this
-        height = 512; //TODO query the camera to get this
+        width = 640;        //TODO query the camera to get this
+        height = 512;       //TODO query the camera to get this
         video_mode = RAW16; //TODO query the camera to get this
-        record_enable = 0;
+        record_enable = 1;
         compression_params.push_back(IMWRITE_PXM_BINARY);
-        data_dir = "/tmp/BHG_DATA";
-        image_filename = "default_imgname.ppm";
+        data_dir = "/tmp/BHG_DATA/";
+        image_filename8 = "default_imgname.ppm";
+        image_filename16 = "default_imgname.ppm";
         csvOutfile;
-        image_folder = "boson_imgs";
-        serial_num = "9999999";
+        image_folder = data_dir + "boson_imgs/";
+        serial_num = "9999999"; // TODO get from camera using sysinfoGetCameraSN sysinfoGetProductName
 
         // Video device by default
         sprintf(video, "/dev/video0");
@@ -139,6 +132,7 @@ public:
         image_transport::ImageTransport it_(*nh);
         image_pub_8 = it_.advertise("boson_image8", 1);
         image_pub_16 = it_.advertise("boson_image16", 1);
+        print_caminfo();
     }
 
     ~BosonUSMA()
@@ -244,9 +238,9 @@ public:
 
         // map fd+offset into a process location (kernel will decide due to our NULL). lenght and
         // properties are also passed
-        ROS_INFO(WHT ">>> Image width  =" YEL "%i" WHT , width);
-        ROS_INFO(WHT ">>> Image height =" YEL "%i" WHT , height);
-        ROS_INFO(WHT ">>> Buffer lenght=" YEL "%i" WHT , bufferinfo.length);
+        ROS_INFO(WHT ">>> Image width  =" YEL "%i" WHT, width);
+        ROS_INFO(WHT ">>> Image height =" YEL "%i" WHT, height);
+        ROS_INFO(WHT ">>> Buffer lenght=" YEL "%i" WHT, bufferinfo.length);
 
         void *buffer_start = mmap(NULL, bufferinfo.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bufferinfo.m.offset);
 
@@ -297,6 +291,30 @@ public:
         sprintf(label, "%s : RAW16  Linear", thermal_sensor_name);
         //imshow(label, thermal16_linear);
 
+        if (record_enable == 1)
+        {
+            this->crnt_time = make_datetime_stamp();
+
+            this->image_filename8 = image_folder + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".png";
+            this->image_filename16 = image_folder + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".png";
+            //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16);
+            cv::imwrite(this->image_filename8, thermal16_linear, compression_params);
+            cv::imwrite(this->image_filename16, thermal16, compression_params);
+            // this->csvOutfile << make_logentry() << std::endl;
+            // this->saved_count++;
+
+            ROS_INFO_THROTTLE(1, "File Location is: %s", this->image_filename16.c_str());
+        }
+
+        // if (record_enable == 1)
+        // {
+        //     sprintf(filename, "%s_raw16_%lu.tiff", thermal_sensor_name, frame);
+        //     imwrite(filename, thermal16, compression_params);
+        //     sprintf(filename, "%s_agc_%lu.tiff", thermal_sensor_name, frame);
+        //     imwrite(filename, thermal16_linear, compression_params);
+        //     frame++;
+        // }
+
         cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 400),
                     cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
         cv_bridge::CvImagePtr cv_ptr(new cv_bridge::CvImage);
@@ -313,15 +331,6 @@ public:
         cv_ptr->header.frame_id = "boson";
         cv_ptr->image = thermal16;
         this->image_pub_16.publish(cv_ptr->toImageMsg());
-
-        if (record_enable == 1)
-        {
-            sprintf(filename, "%s_raw16_%lu.tiff", thermal_sensor_name, frame);
-            imwrite(filename, thermal16, compression_params);
-            sprintf(filename, "%s_agc_%lu.tiff", thermal_sensor_name, frame);
-            imwrite(filename, thermal16_linear, compression_params);
-            frame++;
-        }
     }
 
     // AGC Sample ONE: Linear from min to max.
@@ -374,14 +383,112 @@ public:
 
     /* ---------------------------- Other Aux functions ---------------------------------------*/
 
-    // TODO write this method
-    void print_caminfo() {}
+    // Must be run before connecting to the camera with V4l.
+    int print_caminfo()
+    {
+        // Connect to the camera. 16 is ttyACM0.
+        int32_t dev = 16;
+        int32_t baud = 921600;
+
+        FLR_RESULT result;
+        result = Initialize(dev, baud); //COM6, 921600 baud (port_number=5 for COM6)
+        if (result)
+        {
+            ROS_ERROR("Failed to initialize, exiting.\n");
+            Close();
+            return -1;
+        }
+        else
+        {
+
+            ROS_INFO(CYN "BOSON initialized successfully result is: 0x%08X" WHT, result);
+        }
+
+        // Retrieve the Camera SN and print it
+        uint32_t camera_sn;
+        result = bosonGetCameraSN(&camera_sn);
+        if (result)
+        {
+            ROS_ERROR("Failed with status 0x%08X, exiting.\n", result);
+            Close();
+            return -1;
+        }
+        else
+        {
+            serial_num = to_string(camera_sn);
+            ROS_INFO(CYN "CameraSN: %d" WHT, camera_sn);
+        }
+
+        uint32_t major, minor, patch;
+        result = bosonGetSoftwareRev(&major, &minor, &patch);
+        if (result)
+        {
+            ROS_ERROR("Failed with status 0x%08X, exiting.\n", result);
+            Close();
+            return -1;
+        }
+        else
+        {
+            ROS_INFO(CYN "SoftwareRev:  %u.%u.%u " WHT, major, minor, patch);
+        }
+
+        FLR_BOSON_SENSOR_PARTNUMBER_T part_num;
+        result = bosonGetSensorPN(&part_num);
+        if (result)
+        {
+            ROS_ERROR("Failed with status 0x%08X, exiting.\n", result);
+            Close();
+            return -1;
+        }
+        else
+        {
+            ROS_INFO(CYN "PartNum:  \"%s\"" WHT, part_num.value);
+        }
+
+        //Set Trigger mode
+        FLR_BOSON_EXT_SYNC_MODE_E sync_mode = FLR_BOSON_EXT_SYNC_MASTER_MODE;
+        // enum e_FLR_BOSON_EXT_SYNC_MODE_E {
+        // FLR_BOSON_EXT_SYNC_DISABLE_MODE = (int32_t) 0,
+        // FLR_BOSON_EXT_SYNC_MASTER_MODE = (int32_t) 1,
+        // FLR_BOSON_EXT_SYNC_SLAVE_MODE = (int32_t) 2,
+        // FLR_BOSON_EXT_SYNC_END = (int32_t) 3,
+        result = bosonSetExtSyncMode(sync_mode);
+        if (result)
+        {
+            ROS_ERROR("Failed with status 0x%08X, exiting.", result);
+            Close();
+            return -1;
+        }
+        else
+        {
+            ROS_INFO(CYN "Boson Synch mode set to master" WHT);
+        }
+
+        // Retrieve the Synch Mode
+        result = bosonGetExtSyncMode(&sync_mode);
+        if (result)
+        {
+            ROS_ERROR("Failed with status 0x%08X, exiting.\n", result);
+            Close();
+            return -1;
+        }
+        else
+        {
+            ROS_INFO(CYN "Camera Synch Mode: %d" WHT, sync_mode);
+        }
+
+
+
+
+        Close(); //TODO rename this function in the SDK
+        return 0;
+    }
 
     // HELP INFORMATION
     // TODO Update to reflect current usage
     void print_help()
     {
-        ROS_INFO(CYN "West Point Robotics Boson Capture and Record Node for Project Convergence v%i.%i" WHT , v_major, v_minor);
+        ROS_INFO(CYN "West Point Robotics Boson Capture and Record Node for Project Convergence v%i.%i" WHT, v_major, v_minor);
         ROS_INFO(CYN "Press " YEL "Ctrl-C " CYN "to shutdown the node cleanly" WHT);
     }
 
@@ -411,7 +518,7 @@ public:
         if (mkdir(this->image_folder.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
         {
             if (errno == 0)
-            { 
+            {
                 ROS_INFO("***** GOBI:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
             }
             else if (errno == 17)
@@ -497,7 +604,8 @@ int main(int argc, char **argv)
 
     // Big while loop, continuously publish the images
     uint64_t n = 0;
-    ros::Rate loop_rate(40); //This should be faster than the camera capture rate.
+    // TODO Adjust the rate to what is needed. currently slow for testing
+    ros::Rate loop_rate(10); //This should be faster than the camera capture rate.
 
     while (ros::ok())
     {
@@ -509,6 +617,8 @@ int main(int argc, char **argv)
         //     ROS_INFO(WHT ">>> " RED "'q'" WHT " key pressed. Quitting !");
         //     break;
         // }
+        ros::spinOnce();
+        loop_rate.sleep();
     }
     ROS_INFO("***** Boson:  Received ROS shutdown command");
 }
