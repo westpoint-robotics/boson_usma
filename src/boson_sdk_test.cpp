@@ -3,9 +3,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 extern "C" {
-#include "EnumTypes.h"
-#include "UART_Connector.h"
-#include "Client_API.h"
+#include "boson/EnumTypes.h"
+#include "boson/UART_Connector.h"
+#include "boson/Client_API.h"
 }
 
 int main() {

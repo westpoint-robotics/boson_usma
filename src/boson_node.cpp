@@ -20,9 +20,9 @@
 #include <string>
 extern "C"
 { // For using the Boson C SDK
-#include "EnumTypes.h"
-#include "UART_Connector.h"
-#include "Client_API.h"
+#include "boson/EnumTypes.h"
+#include "boson/UART_Connector.h"
+#include "boson/Client_API.h"
 }
 
 #include "ros/ros.h"

@@ -153,12 +153,12 @@ add_executable(boson_sdk_test src/boson_sdk_test.cpp)
 target_link_libraries(${PROJECT_NAME}_node
 ${catkin_LIBRARIES}
 boson
-FSLP_64
+FSLP
 )
 target_link_libraries(boson_sdk_test
   ${catkin_LIBRARIES}
   boson
-  FSLP_64
+  FSLP
 )
 
 #############
