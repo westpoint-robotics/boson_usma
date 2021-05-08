@@ -32,6 +32,16 @@ extern "C"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 
+
+#include "std_msgs/String.h" // Callback for directory needs this
+#include "sensor_msgs/Imu.h"
+#include "sensor_msgs/NavSatFix.h"
+#include "sensor_msgs/Temperature.h"
+#include "sensor_msgs/MagneticField.h"
+#include "mavros_msgs/Altitude.h"
+#include "geometry_msgs/TwistStamped.h"
+#include "std_msgs/Bool.h"
+
 #define YUV 0
 #define RAW16 1
 
@@ -84,6 +94,17 @@ private:
     std::string image_filename16;
     std::string img_time;
     std::string crnt_time;
+        int saved_count;
+
+        // State updated by callbacks
+        sensor_msgs::MagneticField mag_data;
+        sensor_msgs::Imu imu_data;
+        mavros_msgs::Altitude rel_alt;
+        sensor_msgs::NavSatFix gps_fix;
+        geometry_msgs::TwistStamped vel_gps;
+        sensor_msgs::Temperature temp_imu;              
+
+
 
     // Declarations for RAW16 representation
     // Will be used in case we are reading RAW16 format
@@ -98,6 +119,15 @@ private:
     image_transport::Publisher image_pub_16;
     //TODO Add the subscribers to get logging data
 
+        ros::Subscriber record_sub;
+        ros::Subscriber dir_sub;
+        ros::Subscriber alt_sub;
+        ros::Subscriber gps_sub;
+        ros::Subscriber vel_sub;
+        ros::Subscriber mag_sub;
+        ros::Subscriber imu_sub;
+        ros::Subscriber temp_sub;
+
 public:
     BosonUSMA(ros::NodeHandle *nh)
     {
@@ -106,7 +136,7 @@ public:
         width = 640;        //TODO query the camera to get this
         height = 512;       //TODO query the camera to get this
         video_mode = RAW16; //TODO query the camera to get this
-        record_enable = 1;
+        record_enable = 0;
         compression_params.push_back(IMWRITE_PXM_BINARY);
         data_dir = "/tmp/BHG_DATA/";
         image_filename8 = "default_imgname.ppm";
@@ -120,7 +150,7 @@ public:
         sprintf(folder_name, "TestFolder");
         sprintf(thermal_sensor_name, "Boson_640");
 
-        // TODO reconsile the file saving between Gobi method and boson method
+        // TODO reconsile the file saving between Boson method and boson method
         if (strlen(folder_name) <= 1)
         { // File name has to be more than two chars
             strcpy(folder_name, thermal_sensor_name);
@@ -132,6 +162,16 @@ public:
         image_transport::ImageTransport it_(*nh);
         image_pub_8 = it_.advertise("boson_image8", 1);
         image_pub_16 = it_.advertise("boson_image16", 1);
+
+        dir_sub     = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
+            record_sub  = nh->subscribe("/record", 10, &BosonUSMA::recordCallback, this);
+            dir_sub     = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
+            alt_sub     = nh->subscribe("/mavros/altitude", 1000, &BosonUSMA::alt_cb, this);
+            gps_sub     = nh->subscribe("/mavros/global_position/raw/fix", 1000, &BosonUSMA::gps_cb, this);
+            vel_sub     = nh->subscribe("/mavros/global_position/raw/gps_vel", 1000, &BosonUSMA::vel_cb, this); 
+            mag_sub     = nh->subscribe("/mavros/imu/mag", 1000, &BosonUSMA::mag_cb, this);
+            imu_sub     = nh->subscribe("/mavros/imu/data", 1000, &BosonUSMA::imu_cb, this);
+            temp_sub    = nh->subscribe("/mavros/imu/temperature_imu", 1000, &BosonUSMA::temp_cb, this); 
         print_caminfo();
     }
 
@@ -140,6 +180,12 @@ public:
         perror(RED "VIDIOC_QBUF" WHT);
         exit(1);
     }
+
+        void recordCallback(const std_msgs::Bool msg)
+        {
+            this->record_enable = msg.data; 
+            ROS_INFO("***** BOSON:  RECORD CALLBACK FIRED WITH A VALUE OF: [%d]", this->record_enable);
+        }
 
     int closeSensor()
     {
@@ -300,10 +346,10 @@ public:
             //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16);
             cv::imwrite(this->image_filename8, thermal16_linear, compression_params);
             cv::imwrite(this->image_filename16, thermal16, compression_params);
-            // this->csvOutfile << make_logentry() << std::endl;
-            // this->saved_count++;
+            this->csvOutfile << make_logentry() << std::endl;
+            this->saved_count++;
 
-            ROS_INFO_THROTTLE(1, "File Location is: %s", this->image_filename16.c_str());
+            //ROS_INFO_THROTTLE(1, "File Location is: %s", this->image_filename16.c_str());
         }
 
         // if (record_enable == 1)
@@ -512,14 +558,14 @@ public:
         this->data_dir.pop_back();
         std::string dir_time(data_dir.substr(data_dir.rfind("/")));
 
-        this->image_folder = data_dir + "/GOBI_SN_" + this->serial_num + "/";
-        string csv_filename = data_dir + dir_time + "_gobi.csv";
-
+        this->image_folder = data_dir + "/BOSON_SN_" + this->serial_num + "/";
+        string csv_filename = data_dir + dir_time + "_boson.csv";
+        //ROS_INFO("***** BOSON:  Creating directory %s", this->image_folder.c_str());
         if (mkdir(this->image_folder.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
         {
             if (errno == 0)
             {
-                ROS_INFO("***** GOBI:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
+                ROS_INFO("***** BOSON:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
             }
             else if (errno == 17)
             {
@@ -527,27 +573,27 @@ public:
             }
             else
             {
-                ROS_INFO("***** GOBI: Directory does not exist and MKDIR failed the errno is %i", errno);
+                ROS_INFO("***** BOSON: Directory does not exist and MKDIR failed the errno is %i", errno);
             }
         }
         else
         {
-            //ROS_INFO("***** GOBI:  Created Data Directory and establishing csv file" );
-            ROS_INFO("***** GOBI:  Data directory is: [%s]", this->image_folder.c_str());
+            //ROS_INFO("***** BOSON:  Created Data Directory and establishing csv file" );
+            ROS_INFO("***** BOSON:  Data directory is: [%s]", this->image_folder.c_str());
 
             if (csvOutfile.is_open())
             { // Close the old csv file
-                ROS_INFO("***** GOBI:  GOBI CSV File is already open: [%s]", csv_filename.c_str());
+                ROS_INFO("***** BOSON:  BOSON CSV File is already open: [%s]", csv_filename.c_str());
                 csvOutfile.close();
             }
             csvOutfile.open(csv_filename, std::ios_base::app); // open new csv file
             if (!csvOutfile)
             {
-                ROS_ERROR("***** GOBI:  ERROR   FAILED TO OPEN GOBI CSV File: %s,  [%s]", strerror(errno), csv_filename.c_str());
+                ROS_ERROR("***** BOSON:  ERROR   FAILED TO OPEN BOSON CSV File: %s,  [%s]", strerror(errno), csv_filename.c_str());
                 csvOutfile.open(csv_filename, std::ios_base::app); // DML is unrealable in creating the initial file
-                ROS_ERROR("***** GOBI:  ERROR   BLINDLY TRYIED TO OPEN csv AGAIN: %s,  [%s]", strerror(errno), csv_filename.c_str());
+                ROS_ERROR("***** BOSON:  ERROR   BLINDLY TRYIED TO OPEN csv AGAIN: %s,  [%s]", strerror(errno), csv_filename.c_str());
             }
-            ROS_INFO("***** GOBI:  CSV file is: [%s]", csv_filename.c_str());
+            ROS_INFO("***** BOSON:  CSV file is: [%s]", csv_filename.c_str());
             csvOutfile << make_header() << endl;
         }
     }
@@ -569,9 +615,9 @@ public:
         return header;
     }
 
-    /*     string make_logentry()
+     string make_logentry()
     {
-        string alt_str = image_filename + "," + this->crnt_time + "," + to_string(rel_alt.monotonic) + "," + to_string(rel_alt.amsl) + "," + to_string(rel_alt.local) + "," + to_string(rel_alt.relative);
+        string alt_str = image_filename16 + "," + this->crnt_time + "," + to_string(rel_alt.monotonic) + "," + to_string(rel_alt.amsl) + "," + to_string(rel_alt.local) + "," + to_string(rel_alt.relative);
         string gps_str = to_string(gps_fix.status.status) + "," + to_string(gps_fix.status.service) + "," + to_string(gps_fix.latitude) + "," + to_string(gps_fix.longitude) + "," + to_string(gps_fix.altitude);
         string mag_str = to_string(mag_data.magnetic_field.x) + "," + to_string(mag_data.magnetic_field.y) + "," + to_string(mag_data.magnetic_field.z);
         string imu_str = to_string(imu_data.orientation.x) + "," + to_string(imu_data.orientation.y) + "," + to_string(imu_data.orientation.z) + "," + to_string(imu_data.orientation.w) + ",";
@@ -582,7 +628,7 @@ public:
         string temp_str = to_string(temp_imu.temperature);
         string output = alt_str + "," + gps_str + "," + mag_str + "," + imu_str + "," + vel_str + "," + temp_str;
         return output;
-    } */
+    } 
 
     string char_array_to_string(char *char_array)
     {
@@ -590,6 +636,42 @@ public:
 
         return my_string;
     }
+    
+    void dirCallback(const std_msgs::String::ConstPtr& msg)
+    {
+        this->data_dir = msg->data.c_str();
+        create_directories();
+    }
+
+        void mag_cb(const sensor_msgs::MagneticField::ConstPtr& msg)
+        {
+            mag_data = *msg;
+        }
+
+        void imu_cb(const sensor_msgs::Imu::ConstPtr& msg)
+        {
+            imu_data = *msg;
+        }
+
+        void alt_cb(const mavros_msgs::Altitude::ConstPtr& msg)
+        {
+            rel_alt = *msg;
+        }
+
+        void gps_cb(const sensor_msgs::NavSatFix::ConstPtr& msg)
+        {
+            gps_fix = *msg;
+        }
+
+        void vel_cb(const geometry_msgs::TwistStamped::ConstPtr& msg)
+        {
+            vel_gps = *msg;
+        }
+
+        void temp_cb(const sensor_msgs::Temperature::ConstPtr& msg)
+        {
+            temp_imu = *msg;
+        }
 };
 
 int main(int argc, char **argv)
@@ -605,7 +687,7 @@ int main(int argc, char **argv)
     // Big while loop, continuously publish the images
     uint64_t n = 0;
     // TODO Adjust the rate to what is needed. currently slow for testing
-    ros::Rate loop_rate(10); //This should be faster than the camera capture rate.
+    ros::Rate loop_rate(30); //This should be faster than the camera capture rate.
 
     while (ros::ok())
     {
