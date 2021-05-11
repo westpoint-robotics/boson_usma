@@ -73,7 +73,8 @@ private:
     int fd;
     int i;
     long frame;                   // First frame number enumeration
-    char video[20];               // To store Video Port Device
+    std::string  video_id;               // To store Video Port Device
+    //TODO convert below to std""string
     char label[50];               // To display the information
     char thermal_sensor_name[20]; // To store the sensor name
     char filename[60];            // PATH/File_count
@@ -81,6 +82,7 @@ private:
     char video_frames_str[30];
     // Default Program options
     int video_mode;
+    int device_id; 
     int record_enable;
     struct v4l2_format format;
     struct v4l2_buffer bufferinfo;
@@ -145,7 +147,6 @@ public:
         serial_num = "9999999"; // TODO get from camera using sysinfoGetCameraSN sysinfoGetProductName
         sync_mode = FLR_BOSON_EXT_SYNC_DISABLE_MODE;
         // Video device by default
-        sprintf(video, "/dev/video0");
         sprintf(folder_name, "TestFolder");
         sprintf(thermal_sensor_name, "Boson_640");
 
@@ -161,6 +162,14 @@ public:
         image_transport::ImageTransport it_(*nh);
         image_pub_8 = it_.advertise("boson_image8", 1);
         image_pub_16 = it_.advertise("boson_image16", 1);
+        
+        // get ros param for device ID
+        if (nh->hasParam("/camera/gobi/video_id")){  
+            nh->getParam("/camera/gobi/video_id", video_id);
+        }
+        else{ // default to setting for the laptop. use video0 for NUC
+            video_id = "/dev/video2"; 
+        }
 
         dir_sub = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
         record_sub = nh->subscribe("/record", 10, &BosonUSMA::recordCallback, this);
@@ -172,11 +181,6 @@ public:
         imu_sub = nh->subscribe("/mavros/imu/data", 1000, &BosonUSMA::imu_cb, this);
         temp_sub = nh->subscribe("/mavros/imu/temperature_imu", 1000, &BosonUSMA::temp_cb, this);
         print_caminfo();
-
-
-
-
-
     }
 
     ~BosonUSMA()
@@ -215,8 +219,8 @@ public:
         ROS_INFO(WHT ">>> " YEL "%s" WHT " selected", thermal_sensor_name);
 
         // We open the Video Device
-        ROS_INFO(WHT ">>> " YEL "%s" WHT " selected", video);
-        if ((fd = open(video, O_RDWR)) < 0)
+        ROS_INFO(WHT ">>> " YEL "%s" WHT " selected", video_id.c_str());
+        if ((fd = open(video_id.c_str(), O_RDWR)) < 0)
         {
             perror(RED "Error : OPEN. Invalid Video Device" WHT);
             exit(1);
@@ -715,6 +719,8 @@ int main(int argc, char **argv)
     BosonUSMA boson_cam(&nh);
     boson_cam.print_help();
     boson_cam.openSensor();
+    
+    
 
     // Big while loop, continuously publish the images
     uint64_t n = 0;
