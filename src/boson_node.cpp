@@ -164,11 +164,11 @@ public:
         image_pub_16 = it_.advertise("boson_image16", 1);
         
         // get ros param for device ID
-        if (nh->hasParam("/camera/gobi/video_id")){  
-            nh->getParam("/camera/gobi/video_id", video_id);
+        if (nh->hasParam("boson/video_id")){  
+            nh->getParam("boson/video_id", video_id);
         }
         else{ // default to setting for the laptop. use video0 for NUC
-            video_id = "/dev/video2"; 
+            video_id = "/dev/video0"; 
         }
 
         dir_sub = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
@@ -534,9 +534,9 @@ public:
 
 
 //        string trig_mode = "disable";
-//        if (nh->hasParam("/camera/boson/trig_mode"))
+//        if (nh->hasParam("boson/trig_mode"))
 //        {
-//            nh->getParam("/camera/gobi/trig_mode", trig_mode);
+//            nh->getParam("boson/trig_mode", trig_mode);
 //            if (trig_mode == "master")
 //            {
 //                sync_mode = FLR_BOSON_EXT_SYNC_MASTER_MODE;
