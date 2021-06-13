@@ -164,11 +164,11 @@ public:
         image_pub_16 = it_.advertise("boson_image16", 1);
         
         // get ros param for device ID
-        if (nh->hasParam("boson/video_id")){  
-            nh->getParam("boson/video_id", video_id);
+        if (nh->hasParam("/video_id")){  
+            nh->getParam("/video_id", video_id);
         }
         else{ // default to setting for the laptop. use video0 for NUC
-            video_id = "/dev/video2"; 
+            video_id = "/dev/video0"; 
         }
 
         dir_sub = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
@@ -528,7 +528,10 @@ public:
         }
         else
         {
-            ROS_INFO(CYN "Camera Synch Mode: %d" WHT, sync_mode);
+            std::string sync_mode_str="Disabled";
+            if(sync_mode ==1 ){sync_mode_str = "Master";}
+            else if(sync_mode ==2 ){sync_mode_str = "Slave";}
+            ROS_INFO(CYN "Camera Synch Mode: %s" WHT, sync_mode_str.c_str());
         }
 
 
