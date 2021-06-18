@@ -40,6 +40,7 @@ extern "C"
 #include "mavros_msgs/Altitude.h"
 #include "geometry_msgs/TwistStamped.h"
 #include "std_msgs/Bool.h"
+#include <chrono>
 
 #define YUV 0
 #define RAW16 1
@@ -63,6 +64,7 @@ using namespace cv;
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
 using namespace std;
+using namespace std::chrono;
 
 class BosonUSMA
 {
@@ -96,6 +98,7 @@ private:
     std::string image_filename16;
     std::string img_time;
     std::string crnt_time;
+    ros::Time ros_timenow;
     int saved_count;
 
     // State updated by callbacks
@@ -333,8 +336,9 @@ public:
         thermal16_linear = cv::Mat(height, width, CV_8U, 1);      // OpenCV output buffer : Data used to display the video
     }
 
-    int getFrame()
+    int getFrame(int cnt)
     {
+        auto crnt_time = high_resolution_clock::now();
         //ROS_INFO(GRN ">>> HERE NOW1 Type: %d, Length: %d", bufferinfo.type, bufferinfo.length);
         // Put the buffer in the incoming queue.
         if (ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0)
@@ -348,20 +352,26 @@ public:
         {
             perror(RED "VIDIOC_QBUF" WHT);
             exit(1);
-        }
+        } // DML: 17 mSec for the two buffer calls, this 1 mSec faster when synch is disabled.
+        auto delta_time1 = duration<double>(high_resolution_clock::now() - crnt_time).count();
+        //ROS_INFO(CYN ",***** AftrBuffer ,%f" WHT, delta_time);
 
-        AGC_Basic_Linear(thermal16, thermal16_linear, height, width);
+        AGC_Basic_Linear(thermal16, thermal16_linear, height, width); // DML: 9 mSec for the AGC
+
+        auto delta_time2 = duration<double>(high_resolution_clock::now() - crnt_time).count();
+        //ROS_INFO(CYN ",***** AftrAGC ,%f" WHT, delta_time);
 
         // Display thermal after 16-bits AGC... will display an image
         sprintf(label, "%s : RAW16  Linear", thermal_sensor_name);
         //imshow(label, thermal16_linear);
 
-        if (record_enable == 1)
+        //if ((record_enable == 1) && (cnt % 3 == 0))
+        if (record_enable == 1) 
         {
             this->crnt_time = make_datetime_stamp();
 
-            this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".png";
-            this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".png";
+            this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".ppm";
+            this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".ppm";
             //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16);
             cv::imwrite(this->image_filename8, thermal16_linear, compression_params);
             cv::imwrite(this->image_filename16, thermal16, compression_params);
@@ -369,7 +379,9 @@ public:
             this->saved_count++;
 
             //ROS_INFO_THROTTLE(1, "File Location is: %s", this->image_filename16.c_str());
-        }
+        } // DML: 12mSec from after AGC to here when saving images it drops to 9ms if we remove saving 8 bit image
+
+        auto delta_time3 = duration<double>(high_resolution_clock::now() - crnt_time).count();
 
         cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 400),
                     cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
@@ -381,12 +393,17 @@ public:
         this->image_pub_8.publish(cv_ptr->toImageMsg());
         cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 400),
                     cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
+        auto delta_time4 = duration<double>(high_resolution_clock::now() - crnt_time).count();
 
         cv_ptr->encoding = "mono16";
         cv_ptr->header.stamp = ros::Time::now();
         cv_ptr->header.frame_id = "boson";
         cv_ptr->image = thermal16;
         this->image_pub_16.publish(cv_ptr->toImageMsg());
+        // DML: 0.45 mSec to create and publish both images, 2nd image adds 0.15 mSec
+        auto delta_time5 = duration<double>(high_resolution_clock::now() - crnt_time).count();
+        // DML: 36.8 mSec for this function to run this is about 27hz.
+        //ROS_INFO(CYN ",***** AftrSave ,%f,%f,%f,%f,%f" WHT, delta_time1,delta_time2,delta_time3,delta_time4,delta_time5);
         return 0;
     }
 
@@ -584,10 +601,10 @@ public:
     std::string make_datetime_stamp()
     {
         char buffer[80];
-        ros::Time ros_timenow = ros::Time::now();
-        std::time_t raw_time = static_cast<time_t>(ros_timenow.toSec());
+        this->ros_timenow = ros::Time::now();
+        std::time_t raw_time = static_cast<time_t>(this->ros_timenow.toSec());
         struct tm *local_tm = localtime(&raw_time);
-        int ros_millisec = int((ros_timenow.nsec) / 1000);
+        int ros_millisec = int((this->ros_timenow.nsec) / 1000);
         strftime(buffer, 80, "%Y%m%d_%H%M%S", local_tm);
         sprintf(buffer, "%s_%06d", buffer, ros_millisec);
         std::string datetime_stamp(buffer);
@@ -608,13 +625,13 @@ public:
         {
             if (errno != 17)
             {
-                ROS_INFO("***** BOSON:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
+                ROS_INFO("***** BOSON 8:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
             }
         }
         else
         {
             //ROS_INFO("***** BOSON:  Created Data Directory and establishing csv file" );
-            ROS_INFO("***** BOSON:  Data directory is: [%s]", this->image_folder8.c_str());
+            ROS_INFO("***** BOSON 8 Bit:  Data directory is: [%s]", this->image_folder8.c_str());
 
             if (csvOutfile.is_open())
             { // Close the old csv file
@@ -631,6 +648,20 @@ public:
             ROS_INFO("***** BOSON:  CSV file is: [%s]", csv_filename.c_str());
             csvOutfile << make_header() << endl;
         }
+
+        if (mkdir(this->image_folder16.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
+        {
+            if (errno != 17)
+            {
+                ROS_INFO("***** BOSON 16:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
+            }
+        }
+        else
+        {
+            //ROS_INFO("***** BOSON:  Created Data Directory and establishing csv file" );
+            ROS_INFO("***** BOSON 16 Bit:  Data directory is: [%s]", this->image_folder8.c_str());
+}
+
     }
 
     // Make the header for the csv file
@@ -639,7 +670,7 @@ public:
     {
         string header = "";
         header = "filename,rostime,"; //rel_alt.monotonic,rel_alt.amsl,rel_alt.local,rel_alt.relative,";
-        header = "gps_fix.status.status,gps_fix.status.service,gps_fix.latitude,gps_fix.longitude,gps_fix.altitude,";
+        header += "gps_fix.status.status,gps_fix.status.service,gps_fix.latitude,gps_fix.longitude,gps_fix.altitude,";
         header += "mag_data.magnetic_field.x,mag_data.magnetic_field.y,mag_data.magnetic_field.z,";
         header += "imu_data.orientation.x,imu_data.orientation.y,imu_data.orientation.z,imu_data.orientation.w,";
         header += "imu_data.angular_velocity.x,imu_data.angular_velocity.y,imu_data.angular_velocity.z,";
@@ -652,7 +683,9 @@ public:
 
     string make_logentry()
     {
-        string alt_str = image_filename16 + "," + this->crnt_time + ",";// + to_string(rel_alt.monotonic) + "," + to_string(rel_alt.amsl) + "," + to_string(rel_alt.local) + "," + to_string(rel_alt.relative);
+        char time_str[50];
+        sprintf(time_str,"%f", this->ros_timenow.toSec());// +
+        string alt_str = image_filename16 + "," + time_str + ",";// + to_string(rel_alt.monotonic) + "," + to_string(rel_alt.amsl) + "," + to_string(rel_alt.local) + "," + to_string(rel_alt.relative);
         string gps_str = to_string(gps_fix.status.status) + "," + to_string(gps_fix.status.service) + "," + to_string(gps_fix.latitude) + "," + to_string(gps_fix.longitude) + "," + to_string(gps_fix.altitude);
         string mag_str = to_string(mag_data.magnetic_field.x) + "," + to_string(mag_data.magnetic_field.y) + "," + to_string(mag_data.magnetic_field.z);
         string imu_str = to_string(imu_data.orientation.x) + "," + to_string(imu_data.orientation.y) + "," + to_string(imu_data.orientation.z) + "," + to_string(imu_data.orientation.w) + ",";
@@ -718,24 +751,28 @@ int main(int argc, char **argv)
     BosonUSMA boson_cam(&nh);
     boson_cam.print_help();
     
-    boson_cam.print_caminfo();
+    //boson_cam.print_caminfo();
     
     boson_cam.openSensor();
-    
-    
 
     // Big while loop, continuously publish the images
     uint64_t n = 0;
     // TODO Adjust the rate to what is needed. currently slow for testing
-    ros::Rate loop_rate(30); //This should be faster than the camera capture rate.
-
+    ros::Rate loop_rate(70); //This should be faster than the camera capture rate.
+    auto prev_start = high_resolution_clock::now();
     while (ros::ok())
     {
-        boson_cam.getFrame();
-        if(boson_cam.getFrame() ==0){        
+        auto start = high_resolution_clock::now();
+
+        //boson_cam.getFrame(n);
+        if(boson_cam.getFrame(n) ==0){        
             n++;
             ROS_INFO_THROTTLE(5,YEL "***** BOSON:  Grabbed Image %lu, and saved %d" WHT, n, boson_cam.get_savedcount());
-        }            
+        }    
+        else{
+            ROS_INFO(RED "ERROR: Boson get frame failed" WHT);
+
+        }        
         // // Press 'q' to exit
         // if (waitKey(1) == 'q')
         // { // 0x20 (SPACE) ; need a small delay !! we use this to also add an exit option
@@ -744,6 +781,11 @@ int main(int argc, char **argv)
         // }
         ros::spinOnce();
         loop_rate.sleep();
+        auto delta_time = duration<double>(prev_start - start).count();
+        //ROS_INFO(CYN "***** BOSON:  Loop time is %f" WHT, delta_time);
+        
+        prev_start = start;
+
     }
     ROS_INFO("***** Boson:  Received ROS shutdown command");
 }

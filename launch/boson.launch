@@ -1,6 +1,6 @@
 <launch>
 
-    <param name="video_id" value="/dev/video2" />   
+    <param name="video_id" value="/dev/video0" />   
    <node pkg="boson_usma" name="boson_usma_node" type="boson_usma_node" output="screen" >   
    </node>
 
