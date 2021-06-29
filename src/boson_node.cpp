@@ -338,6 +338,7 @@ public:
 
     int getFrame(int cnt)
     {
+        //std::string start_time = make_datetime_stamp();
         auto crnt_time = high_resolution_clock::now();
         //ROS_INFO(GRN ">>> HERE NOW1 Type: %d, Length: %d", bufferinfo.type, bufferinfo.length);
         // Put the buffer in the incoming queue.
@@ -369,7 +370,6 @@ public:
         if (record_enable == 1) 
         {
             this->crnt_time = make_datetime_stamp();
-
             this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".ppm";
             this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".ppm";
             //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16);
@@ -377,7 +377,8 @@ public:
             cv::imwrite(this->image_filename16, thermal16, compression_params);
             this->csvOutfile << make_logentry() << std::endl;
             this->saved_count++;
-
+            //ROS_INFO(CYN ",***** rostime ,%s,%s" WHT, start_time.c_str(),this->crnt_time.c_str());
+            
             //ROS_INFO_THROTTLE(1, "File Location is: %s", this->image_filename16.c_str());
         } // DML: 12mSec from after AGC to here when saving images it drops to 9ms if we remove saving 8 bit image
 
@@ -762,7 +763,7 @@ int main(int argc, char **argv)
     auto prev_start = high_resolution_clock::now();
     while (ros::ok())
     {
-        auto start = high_resolution_clock::now();
+        //auto start = high_resolution_clock::now();
 
         //boson_cam.getFrame(n);
         if(boson_cam.getFrame(n) ==0){        
@@ -781,10 +782,10 @@ int main(int argc, char **argv)
         // }
         ros::spinOnce();
         loop_rate.sleep();
-        auto delta_time = duration<double>(prev_start - start).count();
+        //auto delta_time = duration<double>(prev_start - start).count();
         //ROS_INFO(CYN "***** BOSON:  Loop time is %f" WHT, delta_time);
         
-        prev_start = start;
+        //prev_start = start;
 
     }
     ROS_INFO("***** Boson:  Received ROS shutdown command");
