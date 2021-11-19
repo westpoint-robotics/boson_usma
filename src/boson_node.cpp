@@ -89,6 +89,8 @@ private:
     struct v4l2_format format;
     struct v4l2_buffer bufferinfo;
     std::string data_dir;
+    std::string trigtime;
+
 
     std::string serial_num;
     std::ofstream csvOutfile;
@@ -132,6 +134,8 @@ private:
     ros::Subscriber mag_sub;
     ros::Subscriber imu_sub;
     ros::Subscriber temp_sub;
+    ros::Subscriber trigtime_sub;
+
 
 public:
     BosonUSMA(ros::NodeHandle *nh)
@@ -147,6 +151,7 @@ public:
         data_dir = "/tmp/BHG_DATA/";
         image_filename8 = "default_imgname.ppm";
         image_filename16 = "default_imgname.ppm";
+        trigtime = "TrigTimeNotSet";
         csvOutfile;
         image_folder8 = data_dir + "boson_imgs8/";
         image_folder16 = data_dir + "boson_imgs16/";
@@ -186,6 +191,7 @@ public:
         mag_sub = nh->subscribe("/mavros/imu/mag", 1000, &BosonUSMA::mag_cb, this);
         imu_sub = nh->subscribe("/mavros/imu/data", 1000, &BosonUSMA::imu_cb, this);
         temp_sub = nh->subscribe("/mavros/imu/temperature_imu", 1000, &BosonUSMA::temp_cb, this);
+        trigtime_sub = nh->subscribe("/trig_timer", 1000, &BosonUSMA::trigtime_cb, this);
         //print_caminfo(); TODO this does not work, it appears to start a second connection
     }
 
@@ -339,8 +345,8 @@ public:
     int getFrame(int cnt)
     {
         //std::string start_time = make_datetime_stamp();
-        auto crnt_time = high_resolution_clock::now();
-        //ROS_INFO(GRN ">>> HERE NOW1 Type: %d, Length: %d", bufferinfo.type, bufferinfo.length);
+        auto crnt_time_code = high_resolution_clock::now();
+        // ROS_INFO(GRN ">>> HERE NOW1 Type: %d, Length: %d", bufferinfo.type, bufferinfo.length);
         // Put the buffer in the incoming queue.
         if (ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0)
         {
@@ -354,22 +360,23 @@ public:
             perror(RED "VIDIOC_QBUF" WHT);
             exit(1);
         } // DML: 17 mSec for the two buffer calls, this 1 mSec faster when synch is disabled.
-        auto delta_time1 = duration<double>(high_resolution_clock::now() - crnt_time).count();
+        auto delta_time1 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
         //ROS_INFO(CYN ",***** AftrBuffer ,%f" WHT, delta_time);
 
         AGC_Basic_Linear(thermal16, thermal16_linear, height, width); // DML: 9 mSec for the AGC
 
-        auto delta_time2 = duration<double>(high_resolution_clock::now() - crnt_time).count();
+        auto delta_time2 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
         //ROS_INFO(CYN ",***** AftrAGC ,%f" WHT, delta_time);
 
         // Display thermal after 16-bits AGC... will display an image
         sprintf(label, "%s : RAW16  Linear", thermal_sensor_name);
         //imshow(label, thermal16_linear);
+            this->crnt_time = this->trigtime;
 
         //if ((record_enable == 1) && (cnt % 3 == 0))
         if (record_enable == 1) 
         {
-            this->crnt_time = make_datetime_stamp();
+            //this->crnt_time = make_datetime_stamp();
             this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".ppm";
             this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".ppm";
             //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16);
@@ -378,13 +385,13 @@ public:
             this->csvOutfile << make_logentry() << std::endl;
             this->saved_count++;
             //ROS_INFO(CYN ",***** rostime ,%s,%s" WHT, start_time.c_str(),this->crnt_time.c_str());
-            
+
             //ROS_INFO_THROTTLE(1, "File Location is: %s", this->image_filename16.c_str());
         } // DML: 12mSec from after AGC to here when saving images it drops to 9ms if we remove saving 8 bit image
 
-        auto delta_time3 = duration<double>(high_resolution_clock::now() - crnt_time).count();
+        auto delta_time3 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
 
-        cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 400),
+        cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 40),
                     cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
         cv_bridge::CvImagePtr cv_ptr(new cv_bridge::CvImage);
         cv_ptr->encoding = "mono8";
@@ -392,9 +399,9 @@ public:
         cv_ptr->header.frame_id = "boson";
         cv_ptr->image = thermal16_linear;
         this->image_pub_8.publish(cv_ptr->toImageMsg());
-        cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 400),
+        cv::putText(thermal16, this->crnt_time, cvPoint(30, 40),
                     cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
-        auto delta_time4 = duration<double>(high_resolution_clock::now() - crnt_time).count();
+        auto delta_time4 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
 
         cv_ptr->encoding = "mono16";
         cv_ptr->header.stamp = ros::Time::now();
@@ -402,7 +409,7 @@ public:
         cv_ptr->image = thermal16;
         this->image_pub_16.publish(cv_ptr->toImageMsg());
         // DML: 0.45 mSec to create and publish both images, 2nd image adds 0.15 mSec
-        auto delta_time5 = duration<double>(high_resolution_clock::now() - crnt_time).count();
+        auto delta_time5 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
         // DML: 36.8 mSec for this function to run this is about 27hz.
         //ROS_INFO(CYN ",***** AftrSave ,%f,%f,%f,%f,%f" WHT, delta_time1,delta_time2,delta_time3,delta_time4,delta_time5);
         return 0;
@@ -569,7 +576,7 @@ public:
 //            else if (trig_mode == "slave")
 //            {
 //                sync_mode = FLR_BOSON_EXT_SYNC_SLAVE_MODE;
-//        ROS_INFO("***** BOSON:  RECORD CAMERA IN SYNC SLAVE MODE");
+//        ROS_INFO("***** BOSON:  RECORD CAMERA IN SYNC SLAVE MODE");trigtime_cb
 //            }
 //            else
 //            {
@@ -741,6 +748,13 @@ public:
     {
         temp_imu = *msg;
     }
+
+    void trigtime_cb(const std_msgs::String::ConstPtr &msg)
+    {
+        trigtime = msg->data.c_str();
+    }
+
+
 };
 
 int main(int argc, char **argv)
