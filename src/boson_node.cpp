@@ -149,8 +149,8 @@ public:
         saved_count = 0;
         compression_params.push_back(IMWRITE_PXM_BINARY);
         data_dir = "/tmp/BHG_DATA/";
-        image_filename8 = "default_imgname.ppm";
-        image_filename16 = "default_imgname.ppm";
+        image_filename8 = "default_imgname.png";
+        image_filename16 = "default_imgname.png";
         trigtime = "TrigTimeNotSet";
         csvOutfile;
         image_folder8 = data_dir + "boson_imgs8/";
@@ -377,8 +377,8 @@ public:
         if (record_enable == 1) 
         {
             //this->crnt_time = make_datetime_stamp();
-            this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".ppm";
-            this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".ppm";
+            this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".png";
+            this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".png";
             //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16);
             cv::imwrite(this->image_filename8, thermal16_linear, compression_params);
             cv::imwrite(this->image_filename16, thermal16, compression_params);
