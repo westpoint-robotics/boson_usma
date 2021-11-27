@@ -1,6 +1,11 @@
 <launch>
+  <!--
 
-    <param name="video_id" value="/dev/video0" />   
+    v4l2-ctl - -list-devices
+    v4l-info /dev/video2
+  -->
+
+
    <node pkg="boson_usma" name="boson_usma_node" type="boson_usma_node" output="screen" >   
    </node>
 

@@ -176,11 +176,12 @@ public:
         
         // get ros param for device ID
         if (nh->hasParam("/video_id")){  
-            nh->getParam("/video_id", video_id);
+            nh->getParam("/video_id", video_id);            
         }
         else{ // default to setting for the laptop. use video0 for NUC
-            video_id = "/dev/video0"; 
+            video_id = "/dev/boson_video"; 
         }
+        ROS_INFO("***** BOSON:  Attempting to connect at: [%s]", video_id.c_str());
 
         dir_sub = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
         record_sub = nh->subscribe("/record", 10, &BosonUSMA::recordCallback, this);
@@ -310,11 +311,11 @@ public:
             exit(1);
         }
 
-        // map fd+offset into a process location (kernel will decide due to our NULL). lenght and
+        // map fd+offset into a process location (kernel will decide due to our NULL). length and
         // properties are also passed
         ROS_INFO(WHT ">>> Image width  =" YEL "%i" WHT, width);
         ROS_INFO(WHT ">>> Image height =" YEL "%i" WHT, height);
-        ROS_INFO(WHT ">>> Buffer lenght=" YEL "%i" WHT, bufferinfo.length);
+        ROS_INFO(WHT ">>> Buffer length =" YEL "%i" WHT, bufferinfo.length);
 
         void *buffer_start = mmap(NULL, bufferinfo.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bufferinfo.m.offset);
 
