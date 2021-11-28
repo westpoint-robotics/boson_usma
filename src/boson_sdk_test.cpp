@@ -11,8 +11,8 @@ extern "C" {
 int main() {
     std::cout << "Hello World\n";
     
-	// Connect to the camera. 16 is ttyACM0.
-	int32_t dev = 16;
+	// Connect to the camera. 16 is /dev/ttyACM0, 47 is /dev/boson_video.
+	int32_t dev = 47;
 	int32_t baud = 921600;
 	
 	FLR_RESULT result;

@@ -33,12 +33,6 @@ extern "C"
 #include <image_transport/image_transport.h>
 
 #include "std_msgs/String.h" // Callback for directory needs this
-#include "sensor_msgs/Imu.h"
-#include "sensor_msgs/NavSatFix.h"
-#include "sensor_msgs/Temperature.h"
-#include "sensor_msgs/MagneticField.h"
-#include "mavros_msgs/Altitude.h"
-#include "geometry_msgs/TwistStamped.h"
 #include "std_msgs/Bool.h"
 #include <chrono>
 
@@ -93,7 +87,6 @@ private:
 
 
     std::string serial_num;
-    std::ofstream csvOutfile;
     std::string image_folder8;
     std::string image_folder16;
     std::string image_filename8;
@@ -102,14 +95,6 @@ private:
     std::string crnt_time;
     ros::Time ros_timenow;
     int saved_count;
-
-    // State updated by callbacks
-    sensor_msgs::MagneticField mag_data;
-    sensor_msgs::Imu imu_data;
-    mavros_msgs::Altitude rel_alt;
-    sensor_msgs::NavSatFix gps_fix;
-    geometry_msgs::TwistStamped vel_gps;
-    sensor_msgs::Temperature temp_imu;
 
     FLR_BOSON_EXT_SYNC_MODE_E sync_mode;
 
@@ -124,7 +109,6 @@ private:
 
     image_transport::Publisher image_pub_8;
     image_transport::Publisher image_pub_16;
-    //TODO Add the subscribers to get logging data
 
     ros::Subscriber record_sub;
     ros::Subscriber dir_sub;
@@ -152,7 +136,6 @@ public:
         image_filename8 = "default_imgname.png";
         image_filename16 = "default_imgname.png";
         trigtime = "TrigTimeNotSet";
-        csvOutfile;
         image_folder8 = data_dir + "boson_imgs8/";
         image_folder16 = data_dir + "boson_imgs16/";
         serial_num = "9999999"; // TODO get from camera using sysinfoGetCameraSN sysinfoGetProductName
@@ -183,17 +166,9 @@ public:
         }
         ROS_INFO("***** BOSON:  Attempting to connect at: [%s]", video_id.c_str());
 
-        dir_sub = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
         record_sub = nh->subscribe("/record", 10, &BosonUSMA::recordCallback, this);
         dir_sub = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
-        alt_sub = nh->subscribe("/mavros/altitude", 1000, &BosonUSMA::alt_cb, this);
-        gps_sub = nh->subscribe("/mavros/global_position/raw/fix", 1000, &BosonUSMA::gps_cb, this);
-        vel_sub = nh->subscribe("/mavros/global_position/raw/gps_vel", 1000, &BosonUSMA::vel_cb, this);
-        mag_sub = nh->subscribe("/mavros/imu/mag", 1000, &BosonUSMA::mag_cb, this);
-        imu_sub = nh->subscribe("/mavros/imu/data", 1000, &BosonUSMA::imu_cb, this);
-        temp_sub = nh->subscribe("/mavros/imu/temperature_imu", 1000, &BosonUSMA::temp_cb, this);
         trigtime_sub = nh->subscribe("/trig_timer", 1000, &BosonUSMA::trigtime_cb, this);
-        //print_caminfo(); TODO this does not work, it appears to start a second connection
     }
 
     ~BosonUSMA()
@@ -374,16 +349,15 @@ public:
         //imshow(label, thermal16_linear);
             this->crnt_time = this->trigtime;
 
-        //if ((record_enable == 1) && (cnt % 3 == 0))
         if (record_enable == 1) 
         {
             //this->crnt_time = make_datetime_stamp();
             this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".png";
             this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".png";
-            //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16);
+            // TODO investigate using boson image saving function call instead of opencv
+            //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16); 
             cv::imwrite(this->image_filename8, thermal16_linear, compression_params);
-            cv::imwrite(this->image_filename16, thermal16, compression_params);
-            this->csvOutfile << make_logentry() << std::endl;
+            cv::imwrite(this->image_filename16, thermal16, compression_params); // TODO make image look better, add more contrast.
             this->saved_count++;
             //ROS_INFO(CYN ",***** rostime ,%s,%s" WHT, start_time.c_str(),this->crnt_time.c_str());
 
@@ -466,15 +440,17 @@ public:
 
     /* ---------------------------- Other Aux functions ---------------------------------------*/
 
-    // Must be run before connecting to the camera with V4l.
     int print_caminfo()
     {
-        // Connect to the camera. 16 is ttyACM0.
-        int32_t dev = 16;
+        
+        ROS_INFO(CYN "***** Boson: CAMERA INFO **********" );
+
+        // Connect to the camera. 16 is ttyACM0. 47 is /dev/boson_ser
+        int32_t dev = 47; 
         int32_t baud = 921600;
 
         FLR_RESULT result;
-        result = Initialize(dev, baud); //COM6, 921600 baud (port_number=5 for COM6)
+        result = Initialize(dev, baud);
         if (result)
         {
             ROS_ERROR("Failed to initialize, exiting. 0x%08X\n", result);
@@ -528,25 +504,6 @@ public:
             ROS_INFO(CYN "PartNum:  \"%s\"" WHT, part_num.value);
         }
 
-        //Set Trigger mode
-//        FLR_BOSON_EXT_SYNC_MODE_E sync_mode = FLR_BOSON_EXT_SYNC_SLAVE_MODE;
-        // enum e_FLR_BOSON_EXT_SYNC_MODE_E {
-        // FLR_BOSON_EXT_SYNC_DISABLE_MODE = (int32_t) 0,
-        // FLR_BOSON_EXT_SYNC_MASTER_MODE = (int32_t) 1,
-        // FLR_BOSON_EXT_SYNC_SLAVE_MODE = (int32_t) 2,
-        // FLR_BOSON_EXT_SYNC_END = (int32_t) 3,
-//        result = bosonSetExtSyncMode(sync_mode);
-//        if (result)
-//        {
-//            ROS_ERROR("Failed with status 0x%08X, exiting.", result);
-//            Close();
-//            return -1;
-//        }
-//        else
-//        {
-//            ROS_INFO(CYN "Boson Synch mode set to master" WHT);
-//        }
-
         // Retrieve the Synch Mode
         result = bosonGetExtSyncMode(&sync_mode);
         if (result)
@@ -562,38 +519,6 @@ public:
             else if(sync_mode ==2 ){sync_mode_str = "Slave";}
             ROS_INFO(CYN "Camera Synch Mode: %s" WHT, sync_mode_str.c_str());
         }
-
-
-
-//        string trig_mode = "disable";
-//        if (nh->hasParam("boson/trig_mode"))
-//        {
-//            nh->getParam("boson/trig_mode", trig_mode);
-//            if (trig_mode == "master")
-//            {
-//                sync_mode = FLR_BOSON_EXT_SYNC_MASTER_MODE;
-//        ROS_INFO("***** BOSON:  RECORD CAMERA IN SYNC MASTER MODE");
-//            }
-//            else if (trig_mode == "slave")
-//            {
-//                sync_mode = FLR_BOSON_EXT_SYNC_SLAVE_MODE;
-//        ROS_INFO("***** BOSON:  RECORD CAMERA IN SYNC SLAVE MODE");trigtime_cb
-//            }
-//            else
-//            {
-//                sync_mode = FLR_BOSON_EXT_SYNC_DISABLE_MODE;
-//        ROS_INFO("***** BOSON:  RECORD CAMERA IN SYNC DISABLE MODE");
-//            }
-//        }
-//        else
-//        { // Default to no trigger mode
-//            sync_mode = FLR_BOSON_EXT_SYNC_DISABLE_MODE;
-//        ROS_INFO("***** BOSON:  RECORD CAMERA IN SYNC DISABLE MODE no param specified");
-//            
-//        }
-
-
-
         Close(); //TODO rename this function in the SDK
         return 0;
     }
@@ -628,7 +553,6 @@ public:
 
         this->image_folder8 = data_dir + "/BOSON8_SN_" + this->serial_num + "/";
         this->image_folder16 = data_dir + "/BOSON16_SN_" + this->serial_num + "/";
-        string csv_filename = data_dir + dir_time + "_boson.csv";
         //ROS_INFO("***** BOSON:  Creating directory %s", this->image_folder.c_str());
         if (mkdir(this->image_folder8.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
         {
@@ -639,23 +563,8 @@ public:
         }
         else
         {
-            //ROS_INFO("***** BOSON:  Created Data Directory and establishing csv file" );
+            //ROS_INFO("***** BOSON:  Created Data Directory" );
             ROS_INFO("***** BOSON 8 Bit:  Data directory is: [%s]", this->image_folder8.c_str());
-
-            if (csvOutfile.is_open())
-            { // Close the old csv file
-                ROS_INFO("***** BOSON:  BOSON CSV File is already open: [%s]", csv_filename.c_str());
-                csvOutfile.close();
-            }
-            csvOutfile.open(csv_filename, std::ios_base::app); // open new csv file
-            if (!csvOutfile)
-            {
-                ROS_ERROR("***** BOSON:  ERROR   FAILED TO OPEN BOSON CSV File: %s,  [%s]", strerror(errno), csv_filename.c_str());
-                csvOutfile.open(csv_filename, std::ios_base::app); // DML is unrealable in creating the initial file
-                ROS_ERROR("***** BOSON:  ERROR   BLINDLY TRYIED TO OPEN csv AGAIN: %s,  [%s]", strerror(errno), csv_filename.c_str());
-            }
-            ROS_INFO("***** BOSON:  CSV file is: [%s]", csv_filename.c_str());
-            csvOutfile << make_header() << endl;
         }
 
         if (mkdir(this->image_folder16.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
@@ -667,44 +576,10 @@ public:
         }
         else
         {
-            //ROS_INFO("***** BOSON:  Created Data Directory and establishing csv file" );
+            //ROS_INFO("***** BOSON:  Created Data Directory " );
             ROS_INFO("***** BOSON 16 Bit:  Data directory is: [%s]", this->image_folder8.c_str());
 }
 
-    }
-
-    // Make the header for the csv file
-    // TODO clean this up, a lot of unused columns that printing zeros. Formating of code needs cleanup also.
-    string make_header()
-    {
-        string header = "";
-        header = "filename,rostime,"; //rel_alt.monotonic,rel_alt.amsl,rel_alt.local,rel_alt.relative,";
-        header += "gps_fix.status.status,gps_fix.status.service,gps_fix.latitude,gps_fix.longitude,gps_fix.altitude,";
-        header += "mag_data.magnetic_field.x,mag_data.magnetic_field.y,mag_data.magnetic_field.z,";
-        header += "imu_data.orientation.x,imu_data.orientation.y,imu_data.orientation.z,imu_data.orientation.w,";
-        header += "imu_data.angular_velocity.x,imu_data.angular_velocity.y,imu_data.angular_velocity.z,";
-        header += "imu_data.linear_acceleration.x,imu_data.linear_acceleration.y,imu_data.linear_acceleration.z,";
-        header += "vel_gps.twist.linear.x,vel_gps.twist.linear.y,vel_gps.twist.linear.z,";
-        //header += "vel_gps.twist.angular.x,vel_gps.twist.angular.y,vel_gps.twist.angular.z,";
-        //header += "temp_imu.temperature";
-        return header;
-    }
-
-    string make_logentry()
-    {
-        char time_str[50];
-        sprintf(time_str,"%f", this->ros_timenow.toSec());// +
-        string alt_str = image_filename16 + "," + time_str + ",";// + to_string(rel_alt.monotonic) + "," + to_string(rel_alt.amsl) + "," + to_string(rel_alt.local) + "," + to_string(rel_alt.relative);
-        string gps_str = to_string(gps_fix.status.status) + "," + to_string(gps_fix.status.service) + "," + to_string(gps_fix.latitude) + "," + to_string(gps_fix.longitude) + "," + to_string(gps_fix.altitude);
-        string mag_str = to_string(mag_data.magnetic_field.x) + "," + to_string(mag_data.magnetic_field.y) + "," + to_string(mag_data.magnetic_field.z);
-        string imu_str = to_string(imu_data.orientation.x) + "," + to_string(imu_data.orientation.y) + "," + to_string(imu_data.orientation.z) + "," + to_string(imu_data.orientation.w) + ",";
-        imu_str += to_string(imu_data.angular_velocity.x) + "," + to_string(imu_data.angular_velocity.y) + "," + to_string(imu_data.angular_velocity.z) + ",";
-        imu_str += to_string(imu_data.linear_acceleration.x) + "," + to_string(imu_data.linear_acceleration.y) + "," + to_string(imu_data.linear_acceleration.z);
-        string vel_str = to_string(vel_gps.twist.linear.x) + "," + to_string(vel_gps.twist.linear.y) + "," + to_string(vel_gps.twist.linear.z);
-        //vel_str += to_string(vel_gps.twist.angular.x) + "," + to_string(vel_gps.twist.angular.y) + "," + to_string(vel_gps.twist.angular.z);
-        //string temp_str = to_string(temp_imu.temperature);
-        string output = alt_str + "," + gps_str + "," + mag_str + "," + imu_str;// + "," + vel_str + "," + temp_str;
-        return output;
     }
 
     string char_array_to_string(char *char_array)
@@ -718,36 +593,6 @@ public:
     {
         this->data_dir = msg->data.c_str();
         create_directories();
-    }
-
-    void mag_cb(const sensor_msgs::MagneticField::ConstPtr &msg)
-    {
-        mag_data = *msg;
-    }
-
-    void imu_cb(const sensor_msgs::Imu::ConstPtr &msg)
-    {
-        imu_data = *msg;
-    }
-
-    void alt_cb(const mavros_msgs::Altitude::ConstPtr &msg)
-    {
-        rel_alt = *msg;
-    }
-
-    void gps_cb(const sensor_msgs::NavSatFix::ConstPtr &msg)
-    {
-        gps_fix = *msg;
-    }
-
-    void vel_cb(const geometry_msgs::TwistStamped::ConstPtr &msg)
-    {
-        vel_gps = *msg;
-    }
-
-    void temp_cb(const sensor_msgs::Temperature::ConstPtr &msg)
-    {
-        temp_imu = *msg;
     }
 
     void trigtime_cb(const std_msgs::String::ConstPtr &msg)
@@ -767,7 +612,7 @@ int main(int argc, char **argv)
     BosonUSMA boson_cam(&nh);
     boson_cam.print_help();
     
-    //boson_cam.print_caminfo();
+    boson_cam.print_caminfo();
     
     boson_cam.openSensor();
 
