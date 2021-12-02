@@ -84,6 +84,8 @@ private:
     struct v4l2_buffer bufferinfo;
     std::string data_dir;
     std::string trigtime;
+    int32_t ser_dev; 
+    int32_t ser_baud;
 
 
     std::string serial_num;
@@ -103,6 +105,7 @@ private:
     // Boson320 , Boson 640
     Mat thermal16;        // OpenCV input buffer  : Asking for all info: two bytes per pixel (RAW16)  RAW16 mode`
     Mat thermal16_linear; // OpenCV output buffer : Data used to display the video
+    Mat thermal16_out; // OpenCV output buffer : Data used to display the video
 
     // To record images
     std::vector<int> compression_params;
@@ -124,6 +127,8 @@ private:
 public:
     BosonUSMA(ros::NodeHandle *nh)
     {
+        ser_dev = 47; // Connect to the camera. 16 is ttyACM0. 47 is /dev/boson_ser
+        ser_baud = 921600;
         frame = 0; // First frame number enumeration
         // Default Program options
         width = 640;        //TODO query the camera to get this
@@ -169,6 +174,7 @@ public:
         record_sub = nh->subscribe("/record", 10, &BosonUSMA::recordCallback, this);
         dir_sub = nh->subscribe("/directory", 1000, &BosonUSMA::dirCallback, this);
         trigtime_sub = nh->subscribe("/trig_timer", 1000, &BosonUSMA::trigtime_cb, this);
+        conduct_FCC();
     }
 
     ~BosonUSMA()
@@ -314,9 +320,12 @@ public:
         // Declarations for RAW16 representation
         // Will be used in case we are reading RAW16 format
         // Boson320 , Boson 640
-        thermal16 = cv::Mat(height, width, CV_16U, buffer_start); // OpenCV input buffer  : Asking for all info: two bytes per pixel (RAW16)  RAW16 mode`
-        thermal16_linear = cv::Mat(height, width, CV_8U, 1);      // OpenCV output buffer : Data used to display the video
+        thermal16 = cv::Mat(height, width, CV_16UC1, buffer_start); // OpenCV input buffer  : Asking for all info: two bytes per pixel (RAW16)  RAW16 mode`
+        thermal16_linear = cv::Mat(height, width, CV_8UC1, 1);      // OpenCV output buffer : Data used to display the video
+        thermal16_out = cv::Mat(height, width, CV_16UC1, 1);      // OpenCV output buffer : Data used to display the video
+
     }
+    
 
     int getFrame(int cnt)
     {
@@ -339,7 +348,8 @@ public:
         auto delta_time1 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
         //ROS_INFO(CYN ",***** AftrBuffer ,%f" WHT, delta_time);
 
-        AGC_Basic_Linear(thermal16, thermal16_linear, height, width); // DML: 9 mSec for the AGC
+        //AGC_Basic_Linear(thermal16, thermal16_linear, height, width); // DML: 9 mSec for the AGC
+        grayscale16(thermal16, thermal16_out, height, width);
 
         auto delta_time2 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
         //ROS_INFO(CYN ",***** AftrAGC ,%f" WHT, delta_time);
@@ -349,6 +359,10 @@ public:
         //imshow(label, thermal16_linear);
             this->crnt_time = this->trigtime;
 
+        //errorCode = XC_SaveData(this->handle, image_folder16 +"output_16bit.png", XSD_SaveThermalInfo | XSD_Force16); 
+
+
+        record_enable = 1;
         if (record_enable == 1) 
         {
             //this->crnt_time = make_datetime_stamp();
@@ -356,8 +370,8 @@ public:
             this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".png";
             // TODO investigate using boson image saving function call instead of opencv
             //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16); 
-            cv::imwrite(this->image_filename8, thermal16_linear, compression_params);
-            cv::imwrite(this->image_filename16, thermal16, compression_params); // TODO make image look better, add more contrast.
+            //cv::imwrite(this->image_filename8, thermal16_linear, compression_params);
+            cv::imwrite(this->image_filename16, thermal16_out); // TODO make image look better, add more contrast.
             this->saved_count++;
             //ROS_INFO(CYN ",***** rostime ,%s,%s" WHT, start_time.c_str(),this->crnt_time.c_str());
 
@@ -366,22 +380,22 @@ public:
 
         auto delta_time3 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
 
-        cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 40),
-                    cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
+        // cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 40),
+        //             cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
         cv_bridge::CvImagePtr cv_ptr(new cv_bridge::CvImage);
-        cv_ptr->encoding = "mono8";
-        cv_ptr->header.stamp = ros::Time::now();
-        cv_ptr->header.frame_id = "boson";
-        cv_ptr->image = thermal16_linear;
-        this->image_pub_8.publish(cv_ptr->toImageMsg());
-        cv::putText(thermal16, this->crnt_time, cvPoint(30, 40),
+        // cv_ptr->encoding = "mono8";
+        // cv_ptr->header.stamp = ros::Time::now();
+        // cv_ptr->header.frame_id = "boson";
+        // cv_ptr->image = thermal16_linear;
+        // this->image_pub_8.publish(cv_ptr->toImageMsg());
+        cv::putText(thermal16_out, this->crnt_time, cvPoint(30, 40),
                     cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
         auto delta_time4 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
 
         cv_ptr->encoding = "mono16";
         cv_ptr->header.stamp = ros::Time::now();
         cv_ptr->header.frame_id = "boson";
-        cv_ptr->image = thermal16;
+        cv_ptr->image = thermal16_out;
         this->image_pub_16.publish(cv_ptr->toImageMsg());
         // DML: 0.45 mSec to create and publish both images, 2nd image adds 0.15 mSec
         auto delta_time5 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
@@ -389,6 +403,53 @@ public:
         //ROS_INFO(CYN ",***** AftrSave ,%f,%f,%f,%f,%f" WHT, delta_time1,delta_time2,delta_time3,delta_time4,delta_time5);
         return 0;
     }
+
+    void grayscale16(Mat input_16, Mat output_16, int height, int width)
+    {
+        // int i, j;
+
+        // auxiliary variables for AGC calcultion
+        unsigned int max1 = 0;      // 16 bits
+        unsigned int min1 = 65535;      // 16 bits
+        unsigned int value1, value2;
+
+        // TODO Find dimensions of input and show
+        // TODO Find highest and lowest pixel values
+        // TODO Remap all values to new range
+
+        size_t sizeInBytes = input_16.step[0] * input_16.rows;
+
+        // Find max and min pixel values
+        for (int i = 0; i < height; i++)
+        {
+            for (int j = 0; j < width; j++)
+            {
+                value1 = input_16.at<uint16_t>(i, j ); 
+                if (value1 <= min1 )
+                {
+                    min1 = value1;
+                }
+                if (value1 >= max1)
+                {
+                    max1 = value1;
+                }
+            }
+        }
+        // ROS_INFO("1st Len: %zu Min: %u  Max: %u ", sizeInBytes, min1, max1);
+        // Len: 655360 Min: 0  Max: 22250 
+
+        for (int i = 0; i < height; i++)
+        {
+            for (int j = 0; j < width; j++)
+            {
+                value1 = input_16.at<uint16_t>(i, j );
+                value2 = ((65535 * (value1 - min1))) / (max1 - min1);
+                // ROS_INFO("%04X ", value4);
+                output_16.at<uint16_t>(i, j) = value2;
+            }
+        }
+    }
+
 
     // AGC Sample ONE: Linear from min to max.
     // Input is a MATRIX (height x width) of 16bits. (OpenCV mat)
@@ -440,17 +501,51 @@ public:
 
     /* ---------------------------- Other Aux functions ---------------------------------------*/
 
+    int conduct_FCC()
+    {
+
+        ROS_INFO(CYN "***** Boson: Conducting Flat Field Calibration (FFC) **********" );
+
+        FLR_RESULT result;
+        result = Initialize(ser_dev, ser_baud);
+        if (result)
+        {
+            ROS_ERROR("Failed to initialize, exiting. 0x%08X\n", result);
+            Close();
+            return -1;
+        }
+        else
+        {
+
+            ROS_INFO(CYN "BOSON initialized successfully result is: 0x%08X" WHT, result);
+        }
+        //TODO do ffc and make it manual so no more of this.
+
+        result = bosonRunFFC();
+        if (result)
+        {
+            ROS_ERROR("Failed to run FFC: 0x%08X\n", result);
+            //Close();
+            return -1;
+        }
+        else
+        {
+            ROS_INFO(CYN "BOSON successfully ran FFC. result is: 0x%08X" WHT, result);
+        }
+
+        sleep(3);
+        Close(); //TODO rename this function in the SDK
+        return 0;
+    }
+
+
     int print_caminfo()
     {
         
         ROS_INFO(CYN "***** Boson: CAMERA INFO **********" );
 
-        // Connect to the camera. 16 is ttyACM0. 47 is /dev/boson_ser
-        int32_t dev = 47; 
-        int32_t baud = 921600;
-
         FLR_RESULT result;
-        result = Initialize(dev, baud);
+        result = Initialize(ser_dev, ser_baud);
         if (result)
         {
             ROS_ERROR("Failed to initialize, exiting. 0x%08X\n", result);
