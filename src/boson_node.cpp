@@ -360,9 +360,6 @@ public:
             this->crnt_time = this->trigtime;
 
         //errorCode = XC_SaveData(this->handle, image_folder16 +"output_16bit.png", XSD_SaveThermalInfo | XSD_Force16); 
-
-
-        record_enable = 1;
         if (record_enable == 1) 
         {
             //this->crnt_time = make_datetime_stamp();
