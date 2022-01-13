@@ -7,8 +7,7 @@
 - 15hz and 20hz Using this system the average time between images is less than 1ms. The standard deviation is 4ms.
 
 # Adding ability to read the serial input from the arduino trinket
-- Added a udev rule for the trinket (directory is /etc/udev/rules.d):  
-`SUBSYSTEM=="tty", ATTRS{idVendor}=="239a", ATTRS{idProduct}=="801e", GROUP="dialout", SYMLINK="trinket"`  
-- Installed the cpp library for serial communication by cloning the repo and following the repo readme.
-`git clone https://github.com/gbmhunter/CppLinuxSerial.git`
-- 
+- To avoid conflict with other devices using the same subsystems you can use the below UDEV rules.
+    - `echo 'SUBSYSTEM=="tty", ATTRS{idVendor}=="239a", ATTRS{idProduct}=="801e", GROUP="dialout", SYMLINK="trinket"' | sudo tee -a /etc/udev/rules.d/90-trinket.rules > /dev/null`
+- Then reload the udev rules
+    - `sudo udevadm control --reload-rules`
