@@ -89,7 +89,7 @@ private:
 
 
     std::string serial_num;
-    std::string image_folder8;
+//    std::string image_folder8;
     std::string image_folder16;
     std::string image_filename8;
     std::string image_filename16;
@@ -141,7 +141,7 @@ public:
         image_filename8 = "default_imgname.png";
         image_filename16 = "default_imgname.png";
         trigtime = "TrigTimeNotSet";
-        image_folder8 = data_dir + "boson_imgs8/";
+//        image_folder8 = data_dir + "boson_imgs8/";
         image_folder16 = data_dir + "boson_imgs16/";
         serial_num = "9999999"; // TODO get from camera using sysinfoGetCameraSN sysinfoGetProductName
         sync_mode = FLR_BOSON_EXT_SYNC_DISABLE_MODE;
@@ -363,7 +363,7 @@ public:
         if (record_enable == 1) 
         {
             //this->crnt_time = make_datetime_stamp();
-            this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".png";
+//            this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".png";
             this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".png";
             // TODO investigate using boson image saving function call instead of opencv
             //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16); 
@@ -643,22 +643,23 @@ public:
         this->data_dir.pop_back();
         std::string dir_time(data_dir.substr(data_dir.rfind("/")));
 
-        this->image_folder8 = data_dir + "/BOSON8_SN_" + this->serial_num + "/";
-        this->image_folder16 = data_dir + "/BOSON16_SN_" + this->serial_num + "/";
-        //ROS_INFO("***** BOSON:  Creating directory %s", this->image_folder.c_str());
-        if (mkdir(this->image_folder8.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
-        {
-            if (errno != 17)
-            {
-                ROS_INFO("***** BOSON 8:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
-            }
-        }
-        else
-        {
-            //ROS_INFO("***** BOSON:  Created Data Directory" );
-            ROS_INFO("***** BOSON 8 Bit:  Data directory is: [%s]", this->image_folder8.c_str());
-        }
+//        this->image_folder8 = data_dir + "/BOSON8_SN_" + this->serial_num + "/";
+//        ROS_INFO("***** BOSON:  Creating directory %s", this->image_folder.c_str());
+//        if (mkdir(this->image_folder8.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
+//        {
+//            if (errno != 17)
+//            {
+//                ROS_INFO("***** BOSON 8:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
+//            }
+//        }
+//        else
+//        {
+//            //ROS_INFO("***** BOSON:  Created Data Directory" );
+//            ROS_INFO("***** BOSON 8 Bit:  Data directory is: [%s]", this->image_folder8.c_str());
+//        }
 
+        this->image_folder16 = data_dir + "/BOSON16_SN_" + this->serial_num + "/";
+        ROS_INFO("***** BOSON:  Creating directory %s", this->image_folder.c_str());
         if (mkdir(this->image_folder16.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
         {
             if (errno != 17)
@@ -669,7 +670,7 @@ public:
         else
         {
             //ROS_INFO("***** BOSON:  Created Data Directory " );
-            ROS_INFO("***** BOSON 16 Bit:  Data directory is: [%s]", this->image_folder8.c_str());
+            ROS_INFO("***** BOSON 16 Bit:  Data directory is: [%s]", this->image_folder16.c_str());
 }
 
     }
