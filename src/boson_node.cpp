@@ -122,7 +122,7 @@ private:
     // To record images
     std::vector<int> compression_params;
 
-    image_transport::Publisher image_pub_8;
+//    image_transport::Publisher image_pub_8;
     image_transport::Publisher image_pub_16;
 
     ros::Subscriber record_sub;
@@ -171,7 +171,7 @@ public:
         ROS_INFO(WHT ">>> Folder " YEL "%s" WHT " selected to record files", folder_name);
 
         image_transport::ImageTransport it_(*nh);
-        image_pub_8 = it_.advertise("boson_image8", 1);
+        //image_pub_8 = it_.advertise("boson_image8", 1);
         image_pub_16 = it_.advertise("boson_image16", 1);
         
         // get ros param for device ID
