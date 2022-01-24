@@ -35,6 +35,8 @@ extern "C"
 #include "std_msgs/String.h" // Callback for directory needs this
 #include "std_msgs/Bool.h"
 #include <chrono>
+#include <yaml.h>
+
 
 #define YUV 0
 #define RAW16 1
@@ -60,6 +62,15 @@ using namespace cv;
 using namespace std;
 using namespace std::chrono;
 
+
+// TODO read these values from the calibration file yaml file instead of hardcoding here.
+const Mat sn160171_intrinsic = (Mat_<float>(3,3) << 7.3010212275702258e+02, 0., 3.2911510406758202e+02, 0., 7.2797201420370641e+02, 2.5863732390216427e+02, 0., 0., 1.);
+const Mat sn160171_distCoeffs = (Mat_<float>(1,5) << -2.6492018779253568e-01, -5.1994582293663660e-02, -1.1362337160646942e-03, 6.3823640459322202e-05, -1.1864167224607229e-02);
+const Mat sn124812_intrinsic = (Mat_<float>(3,3) << 7.1457836010451138e+02, 0., 3.5502594011092771e+02, 0., 7.1130424664261386e+02, 2.5841352260812175e+02, 0., 0., 1.);
+const Mat sn124812_distCoeffs = (Mat_<float>(1,5) << -3.0899266127579733e-01, 2.1675597077144107e-01, -4.1945650895741527e-03, -9.2864211031679989e-04, -2.9058785845767726e-01);
+const Mat no_sn_intrinsic = (Mat_<float>(3,3) << 0., 0., 0.,0., 0., 0.,0., 0., 0.);
+const Mat no_sn_distCoeffs = (Mat_<float>(1,5) << 0., 0., 0.,0., 0.);
+
 class BosonUSMA
 {
 private:
@@ -71,7 +82,6 @@ private:
     long frame;                   // First frame number enumeration
     std::string  video_id;               // To store Video Port Device
     //TODO convert below to std""string
-    char label[50];               // To display the information
     char thermal_sensor_name[20]; // To store the sensor name
     char filename[60];            // PATH/File_count
     char folder_name[30];         // To store the folder name
@@ -106,6 +116,8 @@ private:
     Mat thermal16;        // OpenCV input buffer  : Asking for all info: two bytes per pixel (RAW16)  RAW16 mode`
     Mat thermal16_linear; // OpenCV output buffer : Data used to display the video
     Mat thermal16_out; // OpenCV output buffer : Data used to display the video
+    Mat intrinsic;
+    Mat distCoeffs;
 
     // To record images
     std::vector<int> compression_params;
@@ -148,7 +160,7 @@ public:
         // Video device by default
         sprintf(folder_name, "TestFolder");
         sprintf(thermal_sensor_name, "Boson_640");
-
+        
         // TODO reconsile the file saving between Boson method and boson method
         if (strlen(folder_name) <= 1)
         { // File name has to be more than two chars
@@ -329,9 +341,6 @@ public:
 
     int getFrame(int cnt)
     {
-        //std::string start_time = make_datetime_stamp();
-        auto crnt_time_code = high_resolution_clock::now();
-        // ROS_INFO(GRN ">>> HERE NOW1 Type: %d, Length: %d", bufferinfo.type, bufferinfo.length);
         // Put the buffer in the incoming queue.
         if (ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0)
         {
@@ -344,76 +353,42 @@ public:
         {
             perror(RED "VIDIOC_QBUF" WHT);
             exit(1);
-        } // DML: 17 mSec for the two buffer calls, this 1 mSec faster when synch is disabled.
-        auto delta_time1 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
-        //ROS_INFO(CYN ",***** AftrBuffer ,%f" WHT, delta_time);
+        } 
 
-        //AGC_Basic_Linear(thermal16, thermal16_linear, height, width); // DML: 9 mSec for the AGC
         grayscale16(thermal16, thermal16_out, height, width);
 
-        auto delta_time2 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
-        //ROS_INFO(CYN ",***** AftrAGC ,%f" WHT, delta_time);
+        // thermal16_out undistort here TODO Get matrixes
+        //TODO load calibration info here ==================================================================================================
 
-        // Display thermal after 16-bits AGC... will display an image
-        sprintf(label, "%s : RAW16  Linear", thermal_sensor_name);
-        //imshow(label, thermal16_linear);
-            this->crnt_time = this->trigtime;
+        cv::Mat thermal16_final;        
+        cv::undistort(thermal16_out, thermal16_final, this->intrinsic, this->distCoeffs);
 
-        //errorCode = XC_SaveData(this->handle, image_folder16 +"output_16bit.png", XSD_SaveThermalInfo | XSD_Force16); 
+        this->crnt_time = this->trigtime;
         if (record_enable == 1) 
         {
-            //this->crnt_time = make_datetime_stamp();
-//            this->image_filename8 = image_folder8 + "BOSON" + this->serial_num + "_8_" + this->crnt_time + ".png";
-            this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".png";
-            // TODO investigate using boson image saving function call instead of opencv
-            //errorCode = XC_SaveData(this->handle, "output.png", XSD_SaveThermalInfo | XSD_Force16); 
-            //cv::imwrite(this->image_filename8, thermal16_linear, compression_params);
-            cv::imwrite(this->image_filename16, thermal16_out); // TODO make image look better, add more contrast.
+            this->image_filename16 = image_folder16 + "BOSON" + this->serial_num + "_16_" + this->crnt_time + ".png";            
+            cv::imwrite(this->image_filename16, thermal16_final); 
             this->saved_count++;
-            //ROS_INFO(CYN ",***** rostime ,%s,%s" WHT, start_time.c_str(),this->crnt_time.c_str());
+        }
 
-            //ROS_INFO_THROTTLE(1, "File Location is: %s", this->image_filename16.c_str());
-        } // DML: 12mSec from after AGC to here when saving images it drops to 9ms if we remove saving 8 bit image
-
-        auto delta_time3 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
-
-        // cv::putText(thermal16_linear, this->crnt_time, cvPoint(30, 40),
-        //             cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
         cv_bridge::CvImagePtr cv_ptr(new cv_bridge::CvImage);
-        // cv_ptr->encoding = "mono8";
-        // cv_ptr->header.stamp = ros::Time::now();
-        // cv_ptr->header.frame_id = "boson";
-        // cv_ptr->image = thermal16_linear;
-        // this->image_pub_8.publish(cv_ptr->toImageMsg());
-        cv::putText(thermal16_out, this->crnt_time, cvPoint(30, 40),
+        cv::putText(thermal16_final, this->crnt_time, cvPoint(30, 40),
                     cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cvScalar(1, 1, 1), 2);
-        auto delta_time4 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
 
         cv_ptr->encoding = "mono16";
         cv_ptr->header.stamp = ros::Time::now();
         cv_ptr->header.frame_id = "boson";
-        cv_ptr->image = thermal16_out;
+        cv_ptr->image = thermal16_final;
         this->image_pub_16.publish(cv_ptr->toImageMsg());
-        // DML: 0.45 mSec to create and publish both images, 2nd image adds 0.15 mSec
-        auto delta_time5 = duration<double>(high_resolution_clock::now() - crnt_time_code).count();
-        // DML: 36.8 mSec for this function to run this is about 27hz.
-        //ROS_INFO(CYN ",***** AftrSave ,%f,%f,%f,%f,%f" WHT, delta_time1,delta_time2,delta_time3,delta_time4,delta_time5);
         return 0;
     }
 
     void grayscale16(Mat input_16, Mat output_16, int height, int width)
     {
-        // int i, j;
-
         // auxiliary variables for AGC calcultion
         unsigned int max1 = 0;      // 16 bits
         unsigned int min1 = 65535;      // 16 bits
         unsigned int value1, value2;
-
-        // TODO Find dimensions of input and show
-        // TODO Find highest and lowest pixel values
-        // TODO Remap all values to new range
-
         size_t sizeInBytes = input_16.step[0] * input_16.rows;
 
         // Find max and min pixel values
@@ -611,6 +586,23 @@ public:
             else if(sync_mode ==2 ){sync_mode_str = "Slave";}
             ROS_INFO(CYN "Camera Synch Mode: %s" WHT, sync_mode_str.c_str());
         }
+        
+        //TODO load calibration info here ==================================================================================================
+        if (160171 == camera_sn){     
+            ROS_INFO(CYN "Loading calibration file for SN 160171");        
+            this->intrinsic = sn160171_intrinsic;
+            this->distCoeffs = sn160171_distCoeffs;
+        }
+        else if (124812 == camera_sn){
+            ROS_INFO(CYN "Loading calibration file for SN 124812");      
+            this->intrinsic = sn124812_intrinsic;
+            this->distCoeffs = sn124812_distCoeffs;
+        }
+        else{
+            ROS_INFO(CYN "No valid camera SN so not performing undistort");      
+            this->intrinsic = no_sn_intrinsic;
+            this->distCoeffs = no_sn_distCoeffs;    
+        }
         Close(); //TODO rename this function in the SDK
         return 0;
     }
@@ -642,24 +634,7 @@ public:
     {
         this->data_dir.pop_back();
         std::string dir_time(data_dir.substr(data_dir.rfind("/")));
-
-//        this->image_folder8 = data_dir + "/BOSON8_SN_" + this->serial_num + "/";
-//        ROS_INFO("***** BOSON:  Creating directory %s", this->image_folder.c_str());
-//        if (mkdir(this->image_folder8.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
-//        {
-//            if (errno != 17)
-//            {
-//                ROS_INFO("***** BOSON 8:  0 Directory does not exist and MKDIR failed the errno is %i", errno);
-//            }
-//        }
-//        else
-//        {
-//            //ROS_INFO("***** BOSON:  Created Data Directory" );
-//            ROS_INFO("***** BOSON 8 Bit:  Data directory is: [%s]", this->image_folder8.c_str());
-//        }
-
         this->image_folder16 = data_dir + "/BOSON16_SN_" + this->serial_num + "/";
-        ROS_INFO("***** BOSON:  Creating directory %s", this->image_folder.c_str());
         if (mkdir(this->image_folder16.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
         {
             if (errno != 17)
@@ -671,7 +646,7 @@ public:
         {
             //ROS_INFO("***** BOSON:  Created Data Directory " );
             ROS_INFO("***** BOSON 16 Bit:  Data directory is: [%s]", this->image_folder16.c_str());
-}
+        }
 
     }
 
@@ -701,24 +676,17 @@ int main(int argc, char **argv)
     // start the ros node
     ros::init(argc, argv, "boson_node");
     ros::NodeHandle nh;
-
     BosonUSMA boson_cam(&nh);
-    boson_cam.print_help();
-    
-    boson_cam.print_caminfo();
-    
+    boson_cam.print_help();    
+    boson_cam.print_caminfo();    
     boson_cam.openSensor();
 
     // Big while loop, continuously publish the images
     uint64_t n = 0;
-    // TODO Adjust the rate to what is needed. currently slow for testing
     ros::Rate loop_rate(70); //This should be faster than the camera capture rate.
     auto prev_start = high_resolution_clock::now();
     while (ros::ok())
     {
-        //auto start = high_resolution_clock::now();
-
-        //boson_cam.getFrame(n);
         if(boson_cam.getFrame(n) ==0){        
             n++;
             ROS_INFO_THROTTLE(5,YEL "***** BOSON:  Grabbed Image %lu, and saved %d" WHT, n, boson_cam.get_savedcount());
@@ -727,19 +695,8 @@ int main(int argc, char **argv)
             ROS_INFO(RED "ERROR: Boson get frame failed" WHT);
 
         }        
-        // // Press 'q' to exit
-        // if (waitKey(1) == 'q')
-        // { // 0x20 (SPACE) ; need a small delay !! we use this to also add an exit option
-        //     ROS_INFO(WHT ">>> " RED "'q'" WHT " key pressed. Quitting !");
-        //     break;
-        // }
         ros::spinOnce();
         loop_rate.sleep();
-        //auto delta_time = duration<double>(prev_start - start).count();
-        //ROS_INFO(CYN "***** BOSON:  Loop time is %f" WHT, delta_time);
-        
-        //prev_start = start;
-
     }
     ROS_INFO("***** Boson:  Received ROS shutdown command");
 }
